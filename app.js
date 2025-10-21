@@ -10,11 +10,11 @@ let validationLabels = null;
 let validationPredictions = null;
 let testPredictions = null;
 
-// Schema configuration - change these for different datasets
-const TARGET_FEATURE = 'Survived'; // Binary classification target
-const ID_FEATURE = 'PassengerId'; // Identifier to exclude from features
-const NUMERICAL_FEATURES = ['Age', 'Fare', 'SibSp', 'Parch']; // Numerical features
-const CATEGORICAL_FEATURES = ['Pclass', 'Sex', 'Embarked']; // Categorical features
+// Schema configuration for Health Insurance dataset
+const TARGET_FEATURE = 'Response'; // Binary classification target
+const ID_FEATURE = 'id'; // Identifier to exclude from features
+const NUMERICAL_FEATURES = ['Age', 'Region_Code', 'Annual_Premium', 'Policy_Sales_Channel', 'Vintage']; // Numerical features
+const CATEGORICAL_FEATURES = ['Gender', 'Driving_License', 'Previously_Insured', 'Vehicle_Age', 'Vehicle_Damage']; // Categorical features
 
 // Load data from uploaded CSV files
 async function loadData() {
@@ -123,21 +123,22 @@ function inspectData() {
     statsDiv.innerHTML = '<h3>Data Statistics</h3>';
     
     const shapeInfo = `Dataset shape: ${trainData.length} rows x ${Object.keys(trainData[0]).length} columns`;
-    const survivalCount = trainData.filter(row => row[TARGET_FEATURE] === 1).length;
-    const survivalRate = (survivalCount / trainData.length * 100).toFixed(2);
-    const targetInfo = `Survival rate: ${survivalCount}/${trainData.length} (${survivalRate}%)`;
+    const interestCount = trainData.filter(row => row[TARGET_FEATURE] === 1).length;
+    const interestRate = (interestCount / trainData.length * 100).toFixed(2);
+    const targetInfo = `Interest rate: ${interestCount}/${trainData.length} (${interestRate}%)`;
     
     // Calculate missing values percentage for each feature
     let missingInfo = '<h4>Missing Values Percentage:</h4><ul>';
     Object.keys(trainData[0]).forEach(feature => {
-        const missingCount = trainData.filter(row => row[feature] === null || row[feature] === undefined).length;
+        const missingCount = trainData.filter(row => row[feature] === null || row[feature] === undefined || row[feature] === '').length;
         const missingPercent = (missingCount / trainData.length * 100).toFixed(2);
         missingInfo += `<li>${feature}: ${missingPercent}%</li>`;
     });
     missingInfo += '</ul>';
     
     statsDiv.innerHTML += `<p>${shapeInfo}</p><p>${targetInfo}</p>${missingInfo}`;
-        // Create visualizations
+    
+    // Create visualizations
     createVisualizations();
     
     // Enable the preprocess button
@@ -172,82 +173,123 @@ function createPreviewTable(data) {
 }
 
 // Create visualizations using tfjs-vis
-  function createVisualizations() {
+function createVisualizations() {
     const chartsDiv = document.getElementById('charts');
     chartsDiv.innerHTML = '<h3>Data Visualizations</h3>';
     
-    // Survival by Sex
-    const survivalBySex = {};
+    // Interest by Gender
+    const interestByGender = {};
     trainData.forEach(row => {
-        if (row.Sex && row.Survived !== undefined) {
-            if (!survivalBySex[row.Sex]) {
-                survivalBySex[row.Sex] = { survived: 0, total: 0 };
+        if (row.Gender && row.Response !== undefined) {
+            if (!interestByGender[row.Gender]) {
+                interestByGender[row.Gender] = { interested: 0, total: 0 };
             }
-            survivalBySex[row.Sex].total++;
-            if (row.Survived === 1) {
-                survivalBySex[row.Sex].survived++;
+            interestByGender[row.Gender].total++;
+            if (row.Response === 1) {
+                interestByGender[row.Gender].interested++;
             }
         }
     });
     
-    // FIX: Use the CORRECT data format for tfjs-vis barchart
-    const sexData = [
-        { index: 'male', value: (survivalBySex.male.survived / survivalBySex.male.total) * 100 },
-        { index: 'female', value: (survivalBySex.female.survived / survivalBySex.female.total) * 100 }
+    const genderData = [
+        { index: 'Male', value: (interestByGender.Male?.interested / interestByGender.Male?.total) * 100 || 0 },
+        { index: 'Female', value: (interestByGender.Female?.interested / interestByGender.Female?.total) * 100 || 0 }
     ];
     
-    console.log('Sex Data for tfjs-vis:', sexData);
-    
-    // FIX: Render with surface
     tfvis.render.barchart(
-        { name: 'Survival Rate by Sex', tab: 'Charts' },
-        sexData,
+        { name: 'Interest Rate by Gender', tab: 'Charts' },
+        genderData,
         { 
-            xLabel: 'Sex', 
-            yLabel: 'Survival Rate (%)',
-            yAxisDomain: [0, 100], // Explicitly set Y-axis range
+            xLabel: 'Gender', 
+            yLabel: 'Interest Rate (%)',
+            yAxisDomain: [0, 100],
             color: ['#FF6B6B', '#4ECDC4']
         }
     );
     
-    // Survival by Pclass
-    const survivalByPclass = {};
+    // Interest by Vehicle Age
+    const interestByVehicleAge = {};
     trainData.forEach(row => {
-        if (row.Pclass !== undefined && row.Survived !== undefined) {
-            if (!survivalByPclass[row.Pclass]) {
-                survivalByPclass[row.Pclass] = { survived: 0, total: 0 };
+        if (row.Vehicle_Age !== undefined && row.Response !== undefined) {
+            if (!interestByVehicleAge[row.Vehicle_Age]) {
+                interestByVehicleAge[row.Vehicle_Age] = { interested: 0, total: 0 };
             }
-            survivalByPclass[row.Pclass].total++;
-            if (row.Survived === 1) {
-                survivalByPclass[row.Pclass].survived++;
+            interestByVehicleAge[row.Vehicle_Age].total++;
+            if (row.Response === 1) {
+                interestByVehicleAge[row.Vehicle_Age].interested++;
             }
         }
     });
     
-    // FIX: Use the CORRECT data format for tfjs-vis barchart
-    const pclassData = [
-        { index: 'Class 1', value: (survivalByPclass[1].survived / survivalByPclass[1].total) * 100 },
-        { index: 'Class 2', value: (survivalByPclass[2].survived / survivalByPclass[2].total) * 100 },
-        { index: 'Class 3', value: (survivalByPclass[3].survived / survivalByPclass[3].total) * 100 }
+    const vehicleAgeData = Object.keys(interestByVehicleAge).map(age => ({
+        index: age,
+        value: (interestByVehicleAge[age].interested / interestByVehicleAge[age].total) * 100
+    }));
+    
+    tfvis.render.barchart(
+        { name: 'Interest Rate by Vehicle Age', tab: 'Charts' },
+        vehicleAgeData,
+        { 
+            xLabel: 'Vehicle Age', 
+            yLabel: 'Interest Rate (%)',
+            yAxisDomain: [0, 100],
+            color: ['#45B7D1', '#96CEB4', '#FEEA00']
+        }
+    );
+    
+    // Interest by Vehicle Damage
+    const interestByVehicleDamage = {};
+    trainData.forEach(row => {
+        if (row.Vehicle_Damage !== undefined && row.Response !== undefined) {
+            if (!interestByVehicleDamage[row.Vehicle_Damage]) {
+                interestByVehicleDamage[row.Vehicle_Damage] = { interested: 0, total: 0 };
+            }
+            interestByVehicleDamage[row.Vehicle_Damage].total++;
+            if (row.Response === 1) {
+                interestByVehicleDamage[row.Vehicle_Damage].interested++;
+            }
+        }
+    });
+    
+    const vehicleDamageData = [
+        { index: 'Damaged', value: (interestByVehicleDamage.Yes?.interested / interestByVehicleDamage.Yes?.total) * 100 || 0 },
+        { index: 'Not Damaged', value: (interestByVehicleDamage.No?.interested / interestByVehicleDamage.No?.total) * 100 || 0 }
     ];
     
-    console.log('Pclass Data for tfjs-vis:', pclassData);
-    
-    // FIX: Render with surface
     tfvis.render.barchart(
-        { name: 'Survival Rate by Passenger Class', tab: 'Charts' },
-        pclassData,
+        { name: 'Interest Rate by Vehicle Damage History', tab: 'Charts' },
+        vehicleDamageData,
         { 
-            xLabel: 'Passenger Class', 
-            yLabel: 'Survival Rate (%)',
-            yAxisDomain: [0, 100],  // Explicitly set Y-axis range
-            color: ['#45B7D1', '#96CEB4', '#FEEA00']
+            xLabel: 'Vehicle Damage', 
+            yLabel: 'Interest Rate (%)',
+            yAxisDomain: [0, 100],
+            color: ['#FF9999', '#99FF99']
+        }
+    );
+    
+    // Age distribution by interest
+    const interestedAges = trainData.filter(row => row.Response === 1 && row.Age).map(row => row.Age);
+    const notInterestedAges = trainData.filter(row => row.Response === 0 && row.Age).map(row => row.Age);
+    
+    const ageData = {
+        values: [
+            { index: 'Interested', value: interestedAges },
+            { index: 'Not Interested', value: notInterestedAges }
+        ]
+    };
+    
+    tfvis.render.histogram(
+        { name: 'Age Distribution by Interest', tab: 'Charts' },
+        ageData,
+        { 
+            xLabel: 'Age',
+            yLabel: 'Frequency'
         }
     );
     
     chartsDiv.innerHTML += '<p>Charts are displayed in the tfjs-vis visor. Click the button in the bottom right to view.</p>';
 }
-    
+
 // Preprocess the data
 function preprocessData() {
     if (!trainData || !testData) {
@@ -261,8 +303,9 @@ function preprocessData() {
     try {
         // Calculate imputation values from training data
         const ageMedian = calculateMedian(trainData.map(row => row.Age).filter(age => age !== null));
-        const fareMedian = calculateMedian(trainData.map(row => row.Fare).filter(fare => fare !== null));
-        const embarkedMode = calculateMode(trainData.map(row => row.Embarked).filter(e => e !== null));
+        const annualPremiumMedian = calculateMedian(trainData.map(row => row.Annual_Premium).filter(premium => premium !== null));
+        const regionCodeMedian = calculateMedian(trainData.map(row => row.Region_Code).filter(code => code !== null));
+        const policyChannelMedian = calculateMedian(trainData.map(row => row.Policy_Sales_Channel).filter(channel => channel !== null));
         
         // Preprocess training data
         preprocessedTrainData = {
@@ -271,7 +314,7 @@ function preprocessData() {
         };
         
         trainData.forEach(row => {
-            const features = extractFeatures(row, ageMedian, fareMedian, embarkedMode);
+            const features = extractFeatures(row, ageMedian, annualPremiumMedian, regionCodeMedian, policyChannelMedian);
             preprocessedTrainData.features.push(features);
             preprocessedTrainData.labels.push(row[TARGET_FEATURE]);
         });
@@ -279,13 +322,13 @@ function preprocessData() {
         // Preprocess test data
         preprocessedTestData = {
             features: [],
-            passengerIds: []
+            customerIds: []
         };
         
         testData.forEach(row => {
-            const features = extractFeatures(row, ageMedian, fareMedian, embarkedMode);
+            const features = extractFeatures(row, ageMedian, annualPremiumMedian, regionCodeMedian, policyChannelMedian);
             preprocessedTestData.features.push(features);
-            preprocessedTestData.passengerIds.push(row[ID_FEATURE]);
+            preprocessedTestData.customerIds.push(row[ID_FEATURE]);
         });
         
         // Convert to tensors
@@ -308,37 +351,51 @@ function preprocessData() {
 }
 
 // Extract features from a row with imputation and normalization
-function extractFeatures(row, ageMedian, fareMedian, embarkedMode) {
+function extractFeatures(row, ageMedian, annualPremiumMedian, regionCodeMedian, policyChannelMedian) {
     // Impute missing values
     const age = row.Age !== null ? row.Age : ageMedian;
-    const fare = row.Fare !== null ? row.Fare : fareMedian;
-    const embarked = row.Embarked !== null ? row.Embarked : embarkedMode;
+    const annualPremium = row.Annual_Premium !== null ? row.Annual_Premium : annualPremiumMedian;
+    const regionCode = row.Region_Code !== null ? row.Region_Code : regionCodeMedian;
+    const policyChannel = row.Policy_Sales_Channel !== null ? row.Policy_Sales_Channel : policyChannelMedian;
+    const vintage = row.Vintage !== null ? row.Vintage : 0;
     
     // Standardize numerical features
     const standardizedAge = (age - ageMedian) / (calculateStdDev(trainData.map(r => r.Age).filter(a => a !== null)) || 1);
-    const standardizedFare = (fare - fareMedian) / (calculateStdDev(trainData.map(r => r.Fare).filter(f => f !== null)) || 1);
+    const standardizedPremium = (annualPremium - annualPremiumMedian) / (calculateStdDev(trainData.map(r => r.Annual_Premium).filter(p => p !== null)) || 1);
+    const standardizedRegion = (regionCode - regionCodeMedian) / (calculateStdDev(trainData.map(r => r.Region_Code).filter(c => c !== null)) || 1);
+    const standardizedChannel = (policyChannel - policyChannelMedian) / (calculateStdDev(trainData.map(r => r.Policy_Sales_Channel).filter(c => c !== null)) || 1);
+    const standardizedVintage = (vintage - calculateMean(trainData.map(r => r.Vintage).filter(v => v !== null))) / (calculateStdDev(trainData.map(r => r.Vintage).filter(v => v !== null)) || 1);
     
     // One-hot encode categorical features
-    const pclassOneHot = oneHotEncode(row.Pclass, [1, 2, 3]); // Pclass values: 1, 2, 3
-    const sexOneHot = oneHotEncode(row.Sex, ['male', 'female']);
-    const embarkedOneHot = oneHotEncode(embarked, ['C', 'Q', 'S']);
+    const genderOneHot = oneHotEncode(row.Gender, ['Male', 'Female']);
+    const drivingLicenseOneHot = oneHotEncode(row.Driving_License?.toString(), ['0', '1']);
+    const previouslyInsuredOneHot = oneHotEncode(row.Previously_Insured?.toString(), ['0', '1']);
+    const vehicleAgeOneHot = oneHotEncode(row.Vehicle_Age, ['< 1 Year', '1-2 Year', '> 2 Years']);
+    const vehicleDamageOneHot = oneHotEncode(row.Vehicle_Damage, ['Yes', 'No']);
     
     // Start with numerical features
     let features = [
         standardizedAge,
-        standardizedFare,
-        row.SibSp || 0,
-        row.Parch || 0
+        standardizedPremium,
+        standardizedRegion,
+        standardizedChannel,
+        standardizedVintage
     ];
     
     // Add one-hot encoded features
-    features = features.concat(pclassOneHot, sexOneHot, embarkedOneHot);
+    features = features.concat(
+        genderOneHot, 
+        drivingLicenseOneHot, 
+        previouslyInsuredOneHot, 
+        vehicleAgeOneHot, 
+        vehicleDamageOneHot
+    );
     
-    // Add optional family features if enabled
-    if (document.getElementById('add-family-features').checked) {
-        const familySize = (row.SibSp || 0) + (row.Parch || 0) + 1;
-        const isAlone = familySize === 1 ? 1 : 0;
-        features.push(familySize, isAlone);
+    // Add interaction features if enabled
+    if (document.getElementById('add-interaction-features').checked) {
+        const agePremiumInteraction = age * annualPremium / 1000000;
+        const premiumDamageInteraction = annualPremium * (row.Vehicle_Damage === 'Yes' ? 1 : 0);
+        features.push(agePremiumInteraction, premiumDamageInteraction);
     }
     
     return features;
@@ -348,40 +405,27 @@ function extractFeatures(row, ageMedian, fareMedian, embarkedMode) {
 function calculateMedian(values) {
     if (values.length === 0) return 0;
     
-    values.sort((a, b) => a - b);
-    const half = Math.floor(values.length / 2);
+    const sorted = [...values].sort((a, b) => a - b);
+    const half = Math.floor(sorted.length / 2);
     
-    if (values.length % 2 === 0) {
-        return (values[half - 1] + values[half]) / 2;
+    if (sorted.length % 2 === 0) {
+        return (sorted[half - 1] + sorted[half]) / 2;
     }
     
-    return values[half];
+    return sorted[half];
 }
 
-// Calculate mode of an array
-function calculateMode(values) {
-    if (values.length === 0) return null;
-    
-    const frequency = {};
-    let maxCount = 0;
-    let mode = null;
-    
-    values.forEach(value => {
-        frequency[value] = (frequency[value] || 0) + 1;
-        if (frequency[value] > maxCount) {
-            maxCount = frequency[value];
-            mode = value;
-        }
-    });
-    
-    return mode;
+// Calculate mean of an array
+function calculateMean(values) {
+    if (values.length === 0) return 0;
+    return values.reduce((sum, val) => sum + val, 0) / values.length;
 }
 
 // Calculate standard deviation of an array
 function calculateStdDev(values) {
     if (values.length === 0) return 0;
     
-    const mean = values.reduce((sum, val) => sum + val, 0) / values.length;
+    const mean = calculateMean(values);
     const squaredDiffs = values.map(value => Math.pow(value - mean, 2));
     const variance = squaredDiffs.reduce((sum, val) => sum + val, 0) / values.length;
     return Math.sqrt(variance);
@@ -405,35 +449,59 @@ function createModel() {
     }
     
     const inputShape = preprocessedTrainData.features.shape[1];
+    const modelType = document.getElementById('model-type').value;
     
-    // Create a sequential model
+    // Create model based on selection
     model = tf.sequential();
     
-    // Add layers
-    model.add(tf.layers.dense({
-        units: 16,
-        activation: 'relu',
-        inputShape: [inputShape]
-    }));
-    
-    model.add(tf.layers.dense({
-        units: 1,
-        activation: 'sigmoid'
-    }));
+    if (modelType === 'simple') {
+        // Simple model for baseline
+        model.add(tf.layers.dense({
+            units: 8,
+            activation: 'relu',
+            inputShape: [inputShape]
+        }));
+        
+        model.add(tf.layers.dense({
+            units: 1,
+            activation: 'sigmoid'
+        }));
+    } else if (modelType === 'deep') {
+        // Deeper model for better performance
+        model.add(tf.layers.dense({
+            units: 32,
+            activation: 'relu',
+            inputShape: [inputShape]
+        }));
+        
+        model.add(tf.layers.dropout({ rate: 0.3 }));
+        
+        model.add(tf.layers.dense({
+            units: 16,
+            activation: 'relu'
+        }));
+        
+        model.add(tf.layers.dropout({ rate: 0.2 }));
+        
+        model.add(tf.layers.dense({
+            units: 1,
+            activation: 'sigmoid'
+        }));
+    }
     
     // Compile the model
     model.compile({
-        optimizer: 'adam',
+        optimizer: tf.train.adam(0.001),
         loss: 'binaryCrossentropy',
-        metrics: ['accuracy']
+        metrics: ['accuracy', 'precision', 'recall']
     });
     
     // Display model summary
     const summaryDiv = document.getElementById('model-summary');
     summaryDiv.innerHTML = '<h3>Model Summary</h3>';
     
-    // Simple summary since tfjs doesn't have a built-in summary function for the browser
-    let summaryText = '<ul>';
+    let summaryText = `<p>Model Type: ${modelType === 'simple' ? 'Simple Neural Network' : 'Deep Neural Network'}</p>`;
+    summaryText += '<ul>';
     model.layers.forEach((layer, i) => {
         summaryText += `<li>Layer ${i+1}: ${layer.getClassName()} - Output Shape: ${JSON.stringify(layer.outputShape)}</li>`;
     });
@@ -469,9 +537,9 @@ async function trainModel() {
         validationData = valFeatures;
         validationLabels = valLabels;
         
-        // Train the model - FIXED: Removed duplicate callbacks
+        // Train the model
         trainingHistory = await model.fit(trainFeatures, trainLabels, {
-            epochs: 50,
+            epochs: parseInt(document.getElementById('epochs').value),
             batchSize: 32,
             validationData: [valFeatures, valLabels],
             callbacks: tfvis.show.fitCallbacks(
@@ -480,7 +548,7 @@ async function trainModel() {
                 { 
                     callbacks: ['onEpochEnd'],
                     onEpochEnd: (epoch, logs) => {
-                        statusDiv.innerHTML = `Epoch ${epoch + 1}/50 - loss: ${logs.loss.toFixed(4)}, acc: ${logs.acc.toFixed(4)}, val_loss: ${logs.val_loss.toFixed(4)}, val_acc: ${logs.val_acc.toFixed(4)}`;
+                        statusDiv.innerHTML = `Epoch ${epoch + 1}/${document.getElementById('epochs').value} - loss: ${logs.loss.toFixed(4)}, acc: ${logs.acc.toFixed(4)}, val_loss: ${logs.val_loss.toFixed(4)}, val_acc: ${logs.val_acc.toFixed(4)}`;
                     }
                 }
             )
@@ -535,18 +603,18 @@ async function updateMetrics() {
         <table style="border-collapse: collapse; width: 100%;">
             <tr>
                 <th style="border: 1px solid #ddd; padding: 8px;"></th>
-                <th style="border: 1px solid #ddd; padding: 8px;">Predicted Positive</th>
-                <th style="border: 1px solid #ddd; padding: 8px;">Predicted Negative</th>
+                <th style="border: 1px solid #ddd; padding: 8px;">Predicted Interested</th>
+                <th style="border: 1px solid #ddd; padding: 8px;">Predicted Not Interested</th>
             </tr>
             <tr>
-                <th style="border: 1px solid #ddd; padding: 8px;">Actual Positive</th>
-                <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">${tp}</td>
-                <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">${fn}</td>
+                <th style="border: 1px solid #ddd; padding: 8px;">Actual Interested</th>
+                <td style="border: 1px solid #ddd; padding: 8px; text-align: center; background-color: #d4edda;">${tp}</td>
+                <td style="border: 1px solid #ddd; padding: 8px; text-align: center; background-color: #f8d7da;">${fn}</td>
             </tr>
             <tr>
-                <th style="border: 1px solid #ddd; padding: 8px;">Actual Negative</th>
-                <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">${fp}</td>
-                <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">${tn}</td>
+                <th style="border: 1px solid #ddd; padding: 8px;">Actual Not Interested</th>
+                <td style="border: 1px solid #ddd; padding: 8px; text-align: center; background-color: #f8d7da;">${fp}</td>
+                <td style="border: 1px solid #ddd; padding: 8px; text-align: center; background-color: #d4edda;">${tn}</td>
             </tr>
         </table>
     `;
@@ -560,10 +628,10 @@ async function updateMetrics() {
     // Update performance metrics display
     const metricsDiv = document.getElementById('performance-metrics');
     metricsDiv.innerHTML = `
-        <p>Accuracy: ${(accuracy * 100).toFixed(2)}%</p>
-        <p>Precision: ${precision.toFixed(4)}</p>
-        <p>Recall: ${recall.toFixed(4)}</p>
-        <p>F1 Score: ${f1.toFixed(4)}</p>
+        <p><strong>Accuracy:</strong> ${(accuracy * 100).toFixed(2)}%</p>
+        <p><strong>Precision:</strong> ${precision.toFixed(4)}</p>
+        <p><strong>Recall:</strong> ${recall.toFixed(4)}</p>
+        <p><strong>F1 Score:</strong> ${f1.toFixed(4)}</p>
     `;
     
     // Calculate and plot ROC curve
@@ -619,7 +687,7 @@ async function plotROC(trueLabels, predictions) {
     
     // Add AUC to performance metrics
     const metricsDiv = document.getElementById('performance-metrics');
-    metricsDiv.innerHTML += `<p>AUC: ${auc.toFixed(4)}</p>`;
+    metricsDiv.innerHTML += `<p><strong>AUC:</strong> ${auc.toFixed(4)}</p>`;
 }
 
 // Predict on test data
@@ -639,13 +707,14 @@ async function predict() {
         // Make predictions
         testPredictions = model.predict(testFeatures);
         
-        // FIX: Properly extract prediction values
-        const predValues = await testPredictions.data(); // Use .data() instead of arraySync()
+        // Extract prediction values
+        const predValues = await testPredictions.data();
         
         // Create prediction results
-        const results = preprocessedTestData.passengerIds.map((id, i) => ({
-            PassengerId: id,
-            Survived: predValues[i] >= 0.5 ? 1 : 0,
+        const threshold = parseFloat(document.getElementById('threshold-slider').value);
+        const results = preprocessedTestData.customerIds.map((id, i) => ({
+            CustomerId: id,
+            Interested: predValues[i] >= threshold ? 1 : 0,
             Probability: predValues[i]
         }));
         
@@ -653,7 +722,19 @@ async function predict() {
         outputDiv.innerHTML = '<h3>Prediction Results (First 10 Rows)</h3>';
         outputDiv.appendChild(createPredictionTable(results.slice(0, 10)));
         
-        outputDiv.innerHTML += `<p>Predictions completed! Total: ${results.length} samples</p>`;
+        // Calculate summary statistics
+        const interestedCount = results.filter(r => r.Interested === 1).length;
+        const totalCount = results.length;
+        const interestRate = (interestedCount / totalCount * 100).toFixed(2);
+        
+        outputDiv.innerHTML += `
+            <div style="margin-top: 20px; padding: 15px; background-color: #e9f7ef; border-radius: 5px;">
+                <h4>Prediction Summary</h4>
+                <p>Total Customers: ${totalCount}</p>
+                <p>Predicted Interested: ${interestedCount} (${interestRate}%)</p>
+                <p>Threshold: ${threshold.toFixed(2)}</p>
+            </div>
+        `;
         
         // Enable the export button
         document.getElementById('export-btn').disabled = false;
@@ -662,13 +743,14 @@ async function predict() {
         console.error(error);
     }
 }
+
 // Create prediction table
 function createPredictionTable(data) {
     const table = document.createElement('table');
     
     // Create header row
     const headerRow = document.createElement('tr');
-    ['PassengerId', 'Survived', 'Probability'].forEach(header => {
+    ['Customer ID', 'Interested', 'Probability'].forEach(header => {
         const th = document.createElement('th');
         th.textContent = header;
         headerRow.appendChild(th);
@@ -679,20 +761,30 @@ function createPredictionTable(data) {
     data.forEach(row => {
         const tr = document.createElement('tr');
         
-        // PassengerId
+        // CustomerId
         const tdId = document.createElement('td');
-        tdId.textContent = row.PassengerId;
+        tdId.textContent = row.CustomerId;
         tr.appendChild(tdId);
         
-        // Survived
-        const tdSurvived = document.createElement('td');
-        tdSurvived.textContent = row.Survived;
-        tr.appendChild(tdSurvived);
+        // Interested
+        const tdInterested = document.createElement('td');
+        tdInterested.textContent = row.Interested;
+        tdInterested.style.color = row.Interested === 1 ? 'green' : 'red';
+        tdInterested.style.fontWeight = 'bold';
+        tr.appendChild(tdInterested);
         
-        // Probability - FIX: Handle number formatting safely
+        // Probability
         const tdProb = document.createElement('td');
         const prob = typeof row.Probability === 'number' ? row.Probability : parseFloat(row.Probability);
         tdProb.textContent = prob.toFixed(4);
+        // Color code based on probability
+        if (prob >= 0.7) {
+            tdProb.style.color = 'green';
+        } else if (prob >= 0.3) {
+            tdProb.style.color = 'orange';
+        } else {
+            tdProb.style.color = 'red';
+        }
         tr.appendChild(tdProb);
         
         table.appendChild(tr);
@@ -714,48 +806,70 @@ async function exportResults() {
     try {
         // Get predictions
         const predValues = await testPredictions.data();
+        const threshold = parseFloat(document.getElementById('threshold-slider').value);
         
-        // Create submission CSV (PassengerId, Survived)
-        let submissionCSV = 'PassengerId,Survived\n';
-        preprocessedTestData.passengerIds.forEach((id, i) => {
-            submissionCSV += `${id},${predValues[i] >= 0.5 ? 1 : 0}\n`;
+        // Create submission CSV (id, Response)
+        let submissionCSV = 'id,Response\n';
+        preprocessedTestData.customerIds.forEach((id, i) => {
+            submissionCSV += `${id},${predValues[i] >= threshold ? 1 : 0}\n`;
         });
         
-        // Create probabilities CSV (PassengerId, Probability)
-        let probabilitiesCSV = 'PassengerId,Probability\n';
-        preprocessedTestData.passengerIds.forEach((id, i) => {
+        // Create probabilities CSV (id, Probability)
+        let probabilitiesCSV = 'id,Probability\n';
+        preprocessedTestData.customerIds.forEach((id, i) => {
             probabilitiesCSV += `${id},${predValues[i].toFixed(6)}\n`;
+        });
+        
+        // Create customer segmentation CSV
+        let segmentationCSV = 'id,Probability,Segment\n';
+        preprocessedTestData.customerIds.forEach((id, i) => {
+            const prob = predValues[i];
+            let segment = 'Low Probability';
+            if (prob >= 0.7) segment = 'High Probability';
+            else if (prob >= 0.4) segment = 'Medium Probability';
+            segmentationCSV += `${id},${prob.toFixed(6)},${segment}\n`;
         });
         
         // Create download links
         const submissionLink = document.createElement('a');
         submissionLink.href = URL.createObjectURL(new Blob([submissionCSV], { type: 'text/csv' }));
-        submissionLink.download = 'submission.csv';
+        submissionLink.download = 'insurance_predictions.csv';
         
         const probabilitiesLink = document.createElement('a');
         probabilitiesLink.href = URL.createObjectURL(new Blob([probabilitiesCSV], { type: 'text/csv' }));
-        probabilitiesLink.download = 'probabilities.csv';
+        probabilitiesLink.download = 'prediction_probabilities.csv';
+        
+        const segmentationLink = document.createElement('a');
+        segmentationLink.href = URL.createObjectURL(new Blob([segmentationCSV], { type: 'text/csv' }));
+        segmentationLink.download = 'customer_segmentation.csv';
         
         // Trigger downloads
         submissionLink.click();
         probabilitiesLink.click();
+        segmentationLink.click();
         
         // Save model
-        await model.save('downloads://titanic-tfjs-model');
+        await model.save('downloads://health-insurance-model');
         
         statusDiv.innerHTML = `
-            <p>Export completed!</p>
-            <p>Downloaded: submission.csv (Kaggle submission format)</p>
-            <p>Downloaded: probabilities.csv (Prediction probabilities)</p>
-            <p>Model saved to browser downloads</p>
+            <div style="padding: 15px; background-color: #e9f7ef; border-radius: 5px;">
+                <p><strong>Export completed!</strong></p>
+                <p>Downloaded files:</p>
+                <ul>
+                    <li>insurance_predictions.csv (Binary predictions)</li>
+                    <li>prediction_probabilities.csv (Prediction probabilities)</li>
+                    <li>customer_segmentation.csv (Customer segmentation)</li>
+                </ul>
+                <p>Model saved to browser downloads</p>
+            </div>
         `;
     } catch (error) {
         statusDiv.innerHTML = `Error during export: ${error.message}`;
         console.error(error);
     }
-} // <-- Закрывающая скобка для exportResults()
+}
 
-// Функция для переключения визора tfjs-vis
+// Toggle visor function
 function toggleVisor() {
     const button = document.getElementById('visor-toggle-btn');
     
@@ -767,117 +881,35 @@ function toggleVisor() {
     const visorInstance = tfvis.visor();
     
     if (visorInstance.isOpen()) {
-        // Если визор открыт, скрываем его
         visorInstance.close();
-        button.innerHTML = '<span class="icon">📊</span> Show charts';
+        button.innerHTML = '<span class="icon">📊</span> Show Charts';
         button.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
     } else {
-        // Если визор закрыт, открываем его и создаем графики
         visorInstance.open();
         recreateVisualizations();
-        button.innerHTML = '<span class="icon">📊</span> Show charts';
-        button.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+        button.innerHTML = '<span class="icon">📊</span> Hide Charts';
+        button.style.background = 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)';
     }
 }
 
-// Функция для пересоздания визуализаций
+// Recreate visualizations
 function recreateVisualizations() {
     if (!trainData) return;
     
-    // Очищаем все существующие вкладки
+    // Clear existing tabs
     const visor = tfvis.visor();
     const tabs = visor.getTabs();
     tabs.forEach(tab => {
         visor.removeTab(tab);
     });
     
-    // Пересоздаем основные графики
-    const survivalBySex = {};
-    trainData.forEach(row => {
-        if (row.Sex && row.Survived !== undefined) {
-            if (!survivalBySex[row.Sex]) {
-                survivalBySex[row.Sex] = { survived: 0, total: 0 };
-            }
-            survivalBySex[row.Sex].total++;
-            if (row.Survived === 1) {
-                survivalBySex[row.Sex].survived++;
-            }
-        }
-    });
-    
-    const sexData = [
-        { index: 'male', value: (survivalBySex.male.survived / survivalBySex.male.total) * 100 },
-        { index: 'female', value: (survivalBySex.female.survived / survivalBySex.female.total) * 100 }
-    ];
-    
-    tfvis.render.barchart(
-        { name: 'Survival Rate by Sex', tab: 'Charts' },
-        sexData,
-        { 
-            xLabel: 'Sex', 
-            yLabel: 'Survival Rate (%)',
-            yAxisDomain: [0, 100],
-            color: ['#FF6B6B', '#4ECDC4']
-        }
-    );
-    
-    // Survival by Pclass
-    const survivalByPclass = {};
-    trainData.forEach(row => {
-        if (row.Pclass !== undefined && row.Survived !== undefined) {
-            if (!survivalByPclass[row.Pclass]) {
-                survivalByPclass[row.Pclass] = { survived: 0, total: 0 };
-            }
-            survivalByPclass[row.Pclass].total++;
-            if (row.Survived === 1) {
-                survivalByPclass[row.Pclass].survived++;
-            }
-        }
-    });
-    
-    const pclassData = [
-        { index: 'Class 1', value: (survivalByPclass[1].survived / survivalByPclass[1].total) * 100 },
-        { index: 'Class 2', value: (survivalByPclass[2].survived / survivalByPclass[2].total) * 100 },
-        { index: 'Class 3', value: (survivalByPclass[3].survived / survivalByPclass[3].total) * 100 }
-    ];
-    
-    tfvis.render.barchart(
-        { name: 'Survival Rate by Passenger Class', tab: 'Charts' },
-        pclassData,
-        { 
-            xLabel: 'Passenger Class', 
-            yLabel: 'Survival Rate (%)',
-            yAxisDomain: [0, 100],
-            color: ['#45B7D1', '#96CEB4', '#FEEA00']
-        }
-    );
+    createVisualizations();
 }
 
+// Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
-    // Закрываем визор при загрузке страницы
+    // Close visor on page load
     if (tfvis.visor().isOpen()) {
         tfvis.visor().close();
     }
-    
-    // Перехватываем стандартное закрытие визора
-    const originalClose = tfvis.visor().close;
-    tfvis.visor().close = function() {
-        const button = document.getElementById('visor-toggle-btn');
-        if (button) {
-            button.innerHTML = '<span class="icon">📊</span> Show charts';
-            button.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
-        }
-        return originalClose.call(this);
-    };
-      
-    // Перехватываем стандартное открытие визора
-    const originalOpen = tfvis.visor().open;
-    tfvis.visor().open = function() {
-        const button = document.getElementById('visor-toggle-btn');
-        if (button) {
-            button.innerHTML = '<span class="icon">📊</span> Show charts';
-            button.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
-        }
-        return originalOpen.call(this);
-    };
 });
