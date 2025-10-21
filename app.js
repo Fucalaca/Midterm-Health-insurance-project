@@ -136,6 +136,13 @@ function inspectData() {
     const shapeInfo = `Dataset shape: ${trainData.length} rows x ${Object.keys(trainData[0]).length} columns`;
     const interestCount = trainData.filter(row => row[TARGET_FEATURE] === 1).length;
     const interestRate = (interestCount / trainData.length * 100).toFixed(2);
+    console.log('Class distribution analysis:');
+    const classCounts = {};
+    trainData.forEach(row => {
+        const cls = row[TARGET_FEATURE];
+        classCounts[cls] = (classCounts[cls] || 0) + 1;
+    });
+    console.log('Class distribution:', classCounts);
     const targetInfo = `Interest rate: ${interestCount}/${trainData.length} (${interestRate}%)`;
     
     // Calculate missing values percentage for each feature
@@ -373,7 +380,13 @@ function preprocessData() {
                 }
             }
             
+            console.log('First 5 processed feature vectors:');
+            for (let i = 0; i < Math.min(5, preprocessedTrainData.features.length); i++) {
+                console.log(`Sample ${i}:`, preprocessedTrainData.features[i]);
+                console.log(`Corresponding label:`, preprocessedTrainData.labels[i]);
+            }
             console.log('Converting to tensors...');
+
             // Convert to tensors
             preprocessedTrainData.features = tf.tensor2d(preprocessedTrainData.features);
             preprocessedTrainData.labels = tf.tensor1d(preprocessedTrainData.labels);
@@ -528,11 +541,14 @@ function createModel() {
     if (modelType === 'simple') {
         // Simple model for baseline
         model.add(tf.layers.dense({
-            units: 8,
+            units: 64,
             activation: 'relu',
             inputShape: [inputShape]
         }));
-        
+        model.add(tf.layers.dense({
+        units: 32,  // добавить слой
+        activation: 'relu'
+        }));
         model.add(tf.layers.dense({
             units: 1,
             activation: 'sigmoid'
@@ -584,6 +600,7 @@ function createModel() {
     document.getElementById('train-btn').disabled = false;
 }
 // Train the model
+// Train the model - IMPROVED VERSION
 async function trainModel() {
     if (!model || !preprocessedTrainData) {
         alert('Please create model first.');
@@ -607,20 +624,47 @@ async function trainModel() {
         validationData = valFeatures;
         validationLabels = valLabels;
         
-        const epochs = parseInt(document.getElementById('epochs').value);
+        // INCREASED EPOCHS and added class weighting
+        const epochs = 100; // Увеличено с 20 до 100
         
-        // Train the model
+        // Calculate class weights for imbalanced data
+        const positiveCount = trainLabels.sum().dataSync()[0];
+        const negativeCount = trainLabels.shape[0] - positiveCount;
+        const positiveWeight = negativeCount / positiveCount;
+        
+        console.log('Class balance:', {
+            positive: positiveCount,
+            negative: negativeCount,
+            positiveWeight: positiveWeight
+        });
+        
+        const classWeight = { 
+            0: 1, 
+            1: Math.min(positiveWeight, 10) // Ограничиваем вес чтобы не было слишком большого
+        };
+        
+        console.log('Using class weights:', classWeight);
+        
+        // Train the model with class weights
         trainingHistory = await model.fit(trainFeatures, trainLabels, {
             epochs: epochs,
             batchSize: 32,
             validationData: [valFeatures, valLabels],
+            classWeight: classWeight, // Добавлены веса классов
             callbacks: tfvis.show.fitCallbacks(
                 { name: 'Training Performance' },
                 ['loss', 'acc', 'val_loss', 'val_acc'],
                 { 
                     callbacks: ['onEpochEnd'],
                     onEpochEnd: (epoch, logs) => {
-                        statusDiv.innerHTML = `Epoch ${epoch + 1}/${epochs} - loss: ${logs.loss.toFixed(4)}, acc: ${logs.acc.toFixed(4)}, val_loss: ${logs.val_loss.toFixed(4)}, val_acc: ${logs.val_acc.toFixed(4)}`;
+                        const status = `Epoch ${epoch + 1}/${epochs} - loss: ${logs.loss.toFixed(4)}, acc: ${logs.acc.toFixed(4)}, val_loss: ${logs.val_loss.toFixed(4)}, val_acc: ${logs.val_acc.toFixed(4)}`;
+                        statusDiv.innerHTML = status;
+                        console.log(status);
+                        
+                        // Early stopping check
+                        if (epoch > 20 && logs.val_loss > 0.8) {
+                            console.log('Early stopping - validation loss too high');
+                        }
                     }
                 }
             )
