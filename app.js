@@ -510,7 +510,7 @@ function oneHotEncode(value, categories) {
 
 // [Rest of the functions remain the same as previous version: createModel, trainModel, updateMetrics, plotROC, predict, createPredictionTable, exportResults, toggleVisor, recreateVisualizations]
 
-// Create the model
+// Create the model - FIXED VERSION
 function createModel() {
     if (!preprocessedTrainData) {
         alert('Please preprocess data first.');
@@ -560,11 +560,11 @@ function createModel() {
         }));
     }
     
-    // Compile the model
+    // Compile the model - FIXED: removed unsupported metrics
     model.compile({
         optimizer: tf.train.adam(0.001),
         loss: 'binaryCrossentropy',
-        metrics: ['accuracy', 'precision', 'recall']
+        metrics: ['accuracy'] // ONLY use 'accuracy' - remove 'precision' and 'recall'
     });
     
     // Display model summary
@@ -583,7 +583,6 @@ function createModel() {
     // Enable the train button
     document.getElementById('train-btn').disabled = false;
 }
-
 // Train the model
 async function trainModel() {
     if (!model || !preprocessedTrainData) {
