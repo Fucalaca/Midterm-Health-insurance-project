@@ -544,7 +544,8 @@ function createModel() {
         model.add(tf.layers.dense({
             units: 128,
             activation: 'relu',
-            inputShape: [inputShape]
+            inputShape: [inputShape],
+            kernelRegularizer: tf.regularizers.l2({l2: 0.01})
         }));
         
         model.add(tf.layers.batchNormalization());
@@ -570,7 +571,8 @@ function createModel() {
         model.add(tf.layers.dense({
             units: 32,
             activation: 'relu',
-            inputShape: [inputShape]
+            inputShape: [inputShape],
+            kernelRegularizer: tf.regularizers.l2({l2: 0.01}) // ДОБАВЬТЕ ЭТО
         }));
         
         model.add(tf.layers.dropout({ rate: 0.3 }));
@@ -613,7 +615,8 @@ function createModel() {
 }
 
 // Helper function for oversampling minority class
-async function oversampleMinorityClass(features, labels, multiplier = 3) {
+// IMPROVED oversampling with synthetic samples
+async function oversampleMinorityClass(features, labels, multiplier = 2) { // Уменьшили с 3 до 2
     const featuresArray = await features.array();
     const labelsArray = await labels.array();
     
@@ -636,13 +639,25 @@ async function oversampleMinorityClass(features, labels, multiplier = 3) {
     console.log(`Minority class: ${minorityFeatures.length} samples`);
     console.log(`Majority class: ${majorityFeatures.length} samples`);
     
-    // Увеличиваем minority класс
+    // Увеличиваем minority класс с SYNTHETIC SAMPLES
     const oversampledMinorityFeatures = [];
     const oversampledMinorityLabels = [];
     
-    for (let i = 0; i < multiplier; i++) {
-        oversampledMinorityFeatures.push(...minorityFeatures);
-        oversampledMinorityLabels.push(...minorityLabels);
+    // Сначала добавим оригинальные samples
+    oversampledMinorityFeatures.push(...minorityFeatures);
+    oversampledMinorityLabels.push(...minorityLabels);
+    
+    // Затем добавим synthetic samples
+    const neededSamples = minorityFeatures.length * (multiplier - 1);
+    for (let i = 0; i < neededSamples; i++) {
+        const randomIndex = Math.floor(Math.random() * minorityFeatures.length);
+        const originalFeatures = minorityFeatures[randomIndex];
+        
+        // Создаем synthetic sample с небольшими вариациями
+        const syntheticFeatures = createSyntheticSample(originalFeatures, 0.05); // 5% вариация
+        
+        oversampledMinorityFeatures.push(syntheticFeatures);
+        oversampledMinorityLabels.push(1);
     }
     
     // Объединяем обратно
@@ -653,11 +668,27 @@ async function oversampleMinorityClass(features, labels, multiplier = 3) {
     const shuffled = shuffleArrays(balancedFeatures, balancedLabels);
     
     console.log(`After oversampling - total: ${shuffled.features.length} samples`);
+    console.log(`Synthetic samples created: ${neededSamples}`);
     
     return {
         features: tf.tensor2d(shuffled.features),
         labels: tf.tensor1d(shuffled.labels)
     };
+}
+
+// Функция для создания synthetic samples - ДОБАВЬТЕ ЭТУ ФУНКЦИЮ
+function createSyntheticSample(features, variation = 0.05) {
+    return features.map(f => {
+        // Добавляем небольшой случайный шум, но избегаем изменения бинарных фичей
+        const isBinary = f === 0 || f === 1;
+        if (isBinary) {
+            // Для бинарных фичей оставляем как есть или с очень малой вероятностью меняем
+            return Math.random() < 0.02 ? (1 - f) : f;
+        } else {
+            // Для числовых фичей добавляем небольшой шум
+            return f + (Math.random() - 0.5) * variation * Math.abs(f);
+        }
+    });
 }
 
 // Helper function to shuffle arrays
@@ -706,7 +737,7 @@ async function trainModel() {
         // Calculate class weights for imbalanced data
         const positiveCount = trainLabels.sum().dataSync()[0];
         const negativeCount = trainLabels.shape[0] - positiveCount;
-        const positiveWeight = Math.min(negativeCount / positiveCount, 15); // Ограничим до 15
+        const positiveWeight = Math.min(negativeCount / positiveCount, 3); // Ограничим до 15
         
         console.log('Class balance before oversampling:', {
             positive: positiveCount,
@@ -727,7 +758,7 @@ async function trainModel() {
         // Применяем oversampling только если дисбаланс сильный
         if (positiveCount / trainLabels.shape[0] < 0.3) {
             statusDiv.innerHTML += '<br>Applying oversampling for class imbalance...';
-            const balancedData = await oversampleMinorityClass(trainFeatures, trainLabels, 5);
+            const balancedData = await oversampleMinorityClass(trainFeatures, trainLabels, 2);
             trainFeatures = balancedData.features;
             trainLabels = balancedData.labels;
         }
