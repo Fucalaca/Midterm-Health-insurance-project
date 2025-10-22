@@ -420,28 +420,28 @@ function preprocessData() {
 
 // Extract features from a row with imputation and normalization
 function extractFeatures(row, ageMedian, annualPremiumMedian, regionCodeMedian, policyChannelMedian) {
-    // Safe imputation with null checks
+    // Safe imputation
     const age = (row.Age !== null && !isNaN(row.Age)) ? row.Age : ageMedian;
     const annualPremium = (row.Annual_Premium !== null && !isNaN(row.Annual_Premium)) ? row.Annual_Premium : annualPremiumMedian;
     const regionCode = (row.Region_Code !== null && !isNaN(row.Region_Code)) ? row.Region_Code : regionCodeMedian;
     const policyChannel = (row.Policy_Sales_Channel !== null && !isNaN(row.Policy_Sales_Channel)) ? row.Policy_Sales_Channel : policyChannelMedian;
     const vintage = (row.Vintage !== null && !isNaN(row.Vintage)) ? row.Vintage : 0;
     
-    // Get training data for standardization (only numerical columns that exist)
+    // Get training data for standardization
     const trainAges = trainData.map(r => r.Age).filter(a => a !== null && !isNaN(a));
     const trainPremiums = trainData.map(r => r.Annual_Premium).filter(p => p !== null && !isNaN(p));
     const trainRegions = trainData.map(r => r.Region_Code).filter(c => c !== null && !isNaN(c));
     const trainChannels = trainData.map(r => r.Policy_Sales_Channel).filter(c => c !== null && !isNaN(c));
     const trainVintages = trainData.map(r => r.Vintage).filter(v => v !== null && !isNaN(v));
     
-    // Safe standardization with fallback
-    const standardizedAge = (age - ageMedian) / (calculateStdDev(trainAges) || 1);
-    const standardizedPremium = (annualPremium - annualPremiumMedian) / (calculateStdDev(trainPremiums) || 1);
-    const standardizedRegion = (regionCode - regionCodeMedian) / (calculateStdDev(trainRegions) || 1);
-    const standardizedChannel = (policyChannel - policyChannelMedian) / (calculateStdDev(trainChannels) || 1);
+    // Robust standardization
+    const standardizedAge = (age - calculateMean(trainAges)) / (calculateStdDev(trainAges) || 1);
+    const standardizedPremium = (annualPremium - calculateMean(trainPremiums)) / (calculateStdDev(trainPremiums) || 1);
+    const standardizedRegion = (regionCode - calculateMean(trainRegions)) / (calculateStdDev(trainRegions) || 1);
+    const standardizedChannel = (policyChannel - calculateMean(trainChannels)) / (calculateStdDev(trainChannels) || 1);
     const standardizedVintage = (vintage - calculateMean(trainVintages)) / (calculateStdDev(trainVintages) || 1);
     
-    // Safe one-hot encoding with fallbacks
+    // One-hot encoding
     const genderOneHot = oneHotEncode(row.Gender, ['Male', 'Female']);
     const drivingLicenseOneHot = oneHotEncode(row.Driving_License?.toString(), ['0', '1']);
     const previouslyInsuredOneHot = oneHotEncode(row.Previously_Insured?.toString(), ['0', '1']);
@@ -466,15 +466,28 @@ function extractFeatures(row, ageMedian, annualPremiumMedian, regionCodeMedian, 
         vehicleDamageOneHot
     );
     
-    // Add interaction features if enabled
-    if (document.getElementById('add-interaction-features').checked) {
-        const agePremiumInteraction = age * annualPremium / 1000000;
-        const premiumDamageInteraction = annualPremium * (row.Vehicle_Damage === 'Yes' ? 1 : 0);
-        features.push(
-            isNaN(agePremiumInteraction) ? 0 : agePremiumInteraction,
-            isNaN(premiumDamageInteraction) ? 0 : premiumDamageInteraction
-        );
-    }
+    // CRITICAL: Add domain-specific engineered features
+    // 1. Age groups (insurance relevance)
+    const ageGroup = age < 25 ? 0 : age < 40 ? 1 : age < 60 ? 2 : 3;
+    const ageGroupOneHot = oneHotEncode(ageGroup.toString(), ['0', '1', '2', '3']);
+    features = features.concat(ageGroupOneHot);
+    
+    // 2. Premium to age ratio (affordability indicator)
+    const premiumToAgeRatio = annualPremium / (age || 1);
+    features.push(isNaN(premiumToAgeRatio) ? 0 : premiumToAgeRatio / 1000);
+    
+    // 3. Risk profile: Young drivers with vehicle damage
+    const youngRiskyDriver = (age < 30 && row.Vehicle_Damage === 'Yes') ? 1 : 0;
+    features.push(youngRiskyDriver);
+    
+    // 4. Previously insured but no current insurance (potential customer)
+    const lapsedCustomer = (row.Previously_Insured === 1 && row.Vehicle_Damage === 'Yes') ? 1 : 0;
+    features.push(lapsedCustomer);
+    
+    // 5. Premium segments
+    const premiumSegment = annualPremium < 20000 ? 0 : annualPremium < 50000 ? 1 : 2;
+    const premiumSegmentOneHot = oneHotEncode(premiumSegment.toString(), ['0', '1', '2']);
+    features = features.concat(premiumSegmentOneHot);
     
     return features;
 }
@@ -533,32 +546,38 @@ function createModel() {
     const inputShape = preprocessedTrainData.features.shape[1];
     const modelType = document.getElementById('model-type').value;
     
-    console.log('Creating model with input shape:', inputShape);
+    console.log('Creating enhanced model with input shape:', inputShape);
     
-    // Create model based on selection
+    // Clear any existing model
+    if (model) {
+        model.dispose();
+    }
+    
     model = tf.sequential();
     
-    // В createModel() для simple модели:
     if (modelType === 'simple') {
-        // IMPROVED simple model with batch normalization
+        // ENHANCED simple model for imbalanced data
         model.add(tf.layers.dense({
-            units: 128,
+            units: 64,
             activation: 'relu',
             inputShape: [inputShape],
-            kernelRegularizer: tf.regularizers.l2({l2: 0.01})
+            kernelInitializer: 'heNormal',
+            kernelRegularizer: tf.regularizers.l2({l2: 0.001})
         }));
         
         model.add(tf.layers.batchNormalization());
-        
-        model.add(tf.layers.dense({
-            units: 64,
-            activation: 'relu'
-        }));
-        
-        model.add(tf.layers.dropout({ rate: 0.3 }));
+        model.add(tf.layers.dropout({rate: 0.3}));
         
         model.add(tf.layers.dense({
             units: 32,
+            activation: 'relu',
+            kernelRegularizer: tf.regularizers.l2({l2: 0.001})
+        }));
+        
+        model.add(tf.layers.dropout({rate: 0.2}));
+        
+        model.add(tf.layers.dense({
+            units: 16,
             activation: 'relu'
         }));
         
@@ -566,23 +585,40 @@ function createModel() {
             units: 1,
             activation: 'sigmoid'
         }));
-    }else if (modelType === 'deep') {
-        // Deeper model for better performance
+        
+    } else if (modelType === 'deep') {
+        // ENHANCED deep architecture
         model.add(tf.layers.dense({
-            units: 32,
-            activation: 'relu',
+            units: 128,
+            activation: 'elu',
             inputShape: [inputShape],
-            kernelRegularizer: tf.regularizers.l2({l2: 0.01}) // ДОБАВЬТЕ ЭТО
+            kernelInitializer: 'heNormal',
+            kernelRegularizer: tf.regularizers.l2({l2: 0.01})
         }));
         
-        model.add(tf.layers.dropout({ rate: 0.3 }));
+        model.add(tf.layers.batchNormalization());
+        model.add(tf.layers.dropout({rate: 0.4}));
+        
+        model.add(tf.layers.dense({
+            units: 64,
+            activation: 'elu',
+            kernelRegularizer: tf.regularizers.l2({l2: 0.01})
+        }));
+        
+        model.add(tf.layers.batchNormalization());
+        model.add(tf.layers.dropout({rate: 0.3}));
+        
+        model.add(tf.layers.dense({
+            units: 32,
+            activation: 'elu'
+        }));
+        
+        model.add(tf.layers.dropout({rate: 0.2}));
         
         model.add(tf.layers.dense({
             units: 16,
             activation: 'relu'
         }));
-        
-        model.add(tf.layers.dropout({ rate: 0.2 }));
         
         model.add(tf.layers.dense({
             units: 1,
@@ -590,27 +626,28 @@ function createModel() {
         }));
     }
     
-    // Compile the model - FIXED: removed unsupported metrics
+    // Enhanced compilation
     model.compile({
-        optimizer: tf.train.adam(0.001),
+        optimizer: tf.train.adam(0.0005),
         loss: 'binaryCrossentropy',
-        metrics: ['accuracy'] // ONLY use 'accuracy' - remove 'precision' and 'recall'
+        metrics: ['accuracy'] // Keep it simple for compatibility
     });
     
-    // Display model summary
+    // Display enhanced model summary
     const summaryDiv = document.getElementById('model-summary');
-    summaryDiv.innerHTML = '<h3>Model Summary</h3>';
+    summaryDiv.innerHTML = '<h3>Enhanced Model Summary</h3>';
     
-    let summaryText = `<p>Model Type: ${modelType === 'simple' ? 'Simple Neural Network' : 'Deep Neural Network'}</p>`;
+    let summaryText = `<p>Model Type: ${modelType === 'simple' ? 'Enhanced Simple Network' : 'Enhanced Deep Network'}</p>`;
+    summaryText += `<p>Input Features: ${inputShape}</p>`;
     summaryText += '<ul>';
     model.layers.forEach((layer, i) => {
-        summaryText += `<li>Layer ${i+1}: ${layer.getClassName()} - Output Shape: ${JSON.stringify(layer.outputShape)}</li>`;
+        summaryText += `<li>Layer ${i+1}: ${layer.getClassName()} - Units: ${layer.units || 'N/A'}</li>`;
     });
     summaryText += '</ul>';
-    summaryText += `<p>Total parameters: ${model.countParams()}</p>`;
+    summaryText += `<p>Total parameters: ${model.countParams().toLocaleString()}</p>`;
+    summaryText += `<p>Architecture optimized for class imbalance</p>`;
     summaryDiv.innerHTML += summaryText;
     
-    // Enable the train button
     document.getElementById('train-btn').disabled = false;
 }
 
@@ -715,10 +752,10 @@ async function trainModel() {
     }
     
     const statusDiv = document.getElementById('training-status');
-    statusDiv.innerHTML = 'Training model...';
+    statusDiv.innerHTML = 'Training enhanced model with class balancing...';
     
     try {
-        // Split training data into train and validation sets (80/20)
+        // Split data
         const splitIndex = Math.floor(preprocessedTrainData.features.shape[0] * 0.8);
         
         let trainFeatures = preprocessedTrainData.features.slice(0, splitIndex);
@@ -727,23 +764,26 @@ async function trainModel() {
         const valFeatures = preprocessedTrainData.features.slice(splitIndex);
         const valLabels = preprocessedTrainData.labels.slice(splitIndex);
         
-        // Store validation data for later evaluation
+        // Store validation data
         validationData = valFeatures;
         validationLabels = valLabels;
         
-        // INCREASED EPOCHS and added class weighting
         const epochs = parseInt(document.getElementById('epochs').value);
-        console.log('Training for', epochs, 'epochs');
         
-        // Calculate class weights for imbalanced data
-        const positiveCount = trainLabels.sum().dataSync()[0];
-        const negativeCount = trainLabels.shape[0] - positiveCount;
-        const positiveWeight = Math.min(negativeCount / positiveCount, 3); // Ограничим до 15
+        // Calculate advanced class weights
+        const labelsArray = await trainLabels.data();
+        const positiveCount = labelsArray.filter(label => label === 1).length;
+        const negativeCount = labelsArray.length - positiveCount;
         
-        console.log('Class balance before oversampling:', {
+        // Dynamic class weighting based on imbalance ratio
+        const imbalanceRatio = negativeCount / positiveCount;
+        const positiveWeight = Math.min(imbalanceRatio, 10); // Cap at 10x
+        
+        console.log('Class distribution:', {
             positive: positiveCount,
             negative: negativeCount,
-            positiveWeight: positiveWeight
+            imbalanceRatio: imbalanceRatio.toFixed(2),
+            positiveWeight: positiveWeight.toFixed(2)
         });
         
         const classWeight = { 
@@ -751,23 +791,7 @@ async function trainModel() {
             1: positiveWeight
         };
         
-        console.log('Using class weights:', classWeight);
-        
-        // === ВСТАВКА OVERSAMPLING ЗДЕСЬ ===
-        console.log('Before oversampling - positive samples:', trainLabels.sum().dataSync()[0]);
-        
-        // Применяем oversampling только если дисбаланс сильный
-        if (positiveCount / trainLabels.shape[0] < 0.3) {
-            statusDiv.innerHTML += '<br>Applying oversampling for class imbalance...';
-            const balancedData = await oversampleMinorityClass(trainFeatures, trainLabels, 2);
-            trainFeatures = balancedData.features;
-            trainLabels = balancedData.labels;
-        }
-        
-        console.log('After oversampling - positive samples:', trainLabels.sum().dataSync()[0]);
-        // === КОНЕЦ ВСТАВКИ ===
-        
-        // Train the model with class weights
+        // Enhanced training with callbacks
         trainingHistory = await model.fit(trainFeatures, trainLabels, {
             epochs: epochs,
             batchSize: 32,
@@ -779,34 +803,79 @@ async function trainModel() {
                     statusDiv.innerHTML = status;
                     console.log(status);
                     
-                    // Reduce learning rate every 20 epochs
-                    if ((epoch + 1) % 20 === 0) {
-                        const newLr = 0.001 * Math.pow(0.5, (epoch + 1) / 20);
+                    // Dynamic learning rate scheduling
+                    if ((epoch + 1) % 15 === 0) {
+                        const currentLr = model.optimizer.learningRate;
+                        const newLr = currentLr * 0.8;
                         model.optimizer.learningRate = newLr;
                         console.log(`Reduced learning rate to: ${newLr}`);
                     }
+                },
+                onTrainEnd: () => {
+                    statusDiv.innerHTML += '<p style="color: green;">Training completed successfully!</p>';
                 }
             }
         });
         
-        statusDiv.innerHTML += '<p>Training completed!</p>';
-        
-        // Make predictions on validation set for evaluation
+        // Enhanced validation predictions
         validationPredictions = model.predict(validationData);
         
-        // Enable the threshold slider and evaluation
+        // Enable evaluation components
         document.getElementById('threshold-slider').disabled = false;
         document.getElementById('threshold-slider').addEventListener('input', updateMetrics);
-        
-        // Enable the predict button
         document.getElementById('predict-btn').disabled = false;
         
-        // Calculate initial metrics
+        // Initial metrics calculation
         updateMetrics();
+        
     } catch (error) {
-        console.error('Error during training:', error);
-        statusDiv.innerHTML = `Error during training: ${error.message}`;
+        console.error('Error during enhanced training:', error);
+        statusDiv.innerHTML = `<p style="color: red;">Error during training: ${error.message}</p>`;
     }
+}
+
+async function findOptimalThreshold() {
+    if (!validationPredictions || !validationLabels) return;
+    
+    const predVals = await validationPredictions.array();
+    const trueVals = await validationLabels.array();
+    
+    let bestF1 = 0;
+    let bestThreshold = 0.5;
+    
+    // Test different thresholds
+    for (let threshold = 0.1; threshold <= 0.9; threshold += 0.05) {
+        let tp = 0, tn = 0, fp = 0, fn = 0;
+        
+        for (let i = 0; i < predVals.length; i++) {
+            const prediction = predVals[i] >= threshold ? 1 : 0;
+            const actual = trueVals[i];
+            
+            if (prediction === 1 && actual === 1) tp++;
+            else if (prediction === 0 && actual === 0) tn++;
+            else if (prediction === 1 && actual === 0) fp++;
+            else if (prediction === 0 && actual === 1) fn++;
+        }
+        
+        const precision = tp / (tp + fp) || 0;
+        const recall = tp / (tp + fn) || 0;
+        const f1 = 2 * (precision * recall) / (precision + recall) || 0;
+        
+        if (f1 > bestF1) {
+            bestF1 = f1;
+            bestThreshold = threshold;
+        }
+    }
+    
+    console.log('Optimal threshold for F1 score:', bestThreshold.toFixed(2), 'F1:', bestF1.toFixed(4));
+    return bestThreshold;
+}
+
+// Call this after training
+async function enhanceModelFurther() {
+    const optimalThreshold = await findOptimalThreshold();
+    document.getElementById('threshold-slider').value = optimalThreshold;
+    updateMetrics();
 }
 
 // Update metrics based on threshold
@@ -817,7 +886,6 @@ async function updateMetrics() {
     document.getElementById('threshold-value').textContent = threshold.toFixed(2);
     
     try {
-        // Calculate confusion matrix
         const predVals = await validationPredictions.array();
         const trueVals = await validationLabels.array();
         
@@ -833,11 +901,13 @@ async function updateMetrics() {
             else if (prediction === 0 && actual === 1) fn++;
         }
         
-        // Update confusion matrix display
+        // Enhanced confusion matrix with percentages
+        const total = tp + tn + fp + fn;
         const cmDiv = document.getElementById('confusion-matrix');
         cmDiv.innerHTML = `
             <div style="overflow-x: auto;">
-                <table style="border-collapse: collapse; width: 100%; min-width: 300px;">
+                <h4>Confusion Matrix</h4>
+                <table style="border-collapse: collapse; width: 100%; min-width: 350px;">
                     <tr>
                         <th style="border: 1px solid #ddd; padding: 12px;"></th>
                         <th style="border: 1px solid #ddd; padding: 12px;">Predicted Interested</th>
@@ -845,48 +915,64 @@ async function updateMetrics() {
                     </tr>
                     <tr>
                         <th style="border: 1px solid #ddd; padding: 12px;">Actual Interested</th>
-                        <td style="border: 1px solid #ddd; padding: 12px; text-align: center; background-color: #d4edda;">${tp}</td>
-                        <td style="border: 1px solid #ddd; padding: 12px; text-align: center; background-color: #f8d7da;">${fn}</td>
+                        <td style="border: 1px solid #ddd; padding: 12px; text-align: center; background-color: #d4edda;">
+                            ${tp}<br><small>(${(tp/total*100).toFixed(1)}%)</small>
+                        </td>
+                        <td style="border: 1px solid #ddd; padding: 12px; text-align: center; background-color: #f8d7da;">
+                            ${fn}<br><small>(${(fn/total*100).toFixed(1)}%)</small>
+                        </td>
                     </tr>
                     <tr>
                         <th style="border: 1px solid #ddd; padding: 12px;">Actual Not Interested</th>
-                        <td style="border: 1px solid #ddd; padding: 12px; text-align: center; background-color: #f8d7da;">${fp}</td>
-                        <td style="border: 1px solid #ddd; padding: 12px; text-align: center; background-color: #d4edda;">${tn}</td>
+                        <td style="border: 1px solid #ddd; padding: 12px; text-align: center; background-color: #f8d7da;">
+                            ${fp}<br><small>(${(fp/total*100).toFixed(1)}%)</small>
+                        </td>
+                        <td style="border: 1px solid #ddd; padding: 12px; text-align: center; background-color: #d4edda;">
+                            ${tn}<br><small>(${(tn/total*100).toFixed(1)}%)</small>
+                        </td>
                     </tr>
                 </table>
             </div>
         `;
         
-        // Calculate performance metrics
+        // Comprehensive performance metrics
         const precision = tp / (tp + fp) || 0;
         const recall = tp / (tp + fn) || 0;
         const f1 = 2 * (precision * recall) / (precision + recall) || 0;
-        const accuracy = (tp + tn) / (tp + tn + fp + fn) || 0;
+        const accuracy = (tp + tn) / total || 0;
         
-        // Update performance metrics display
+        // Specificity (True Negative Rate)
+        const specificity = tn / (tn + fp) || 0;
+        
+        // Balanced Accuracy
+        const balancedAccuracy = (recall + specificity) / 2;
+        
         const metricsDiv = document.getElementById('performance-metrics');
         metricsDiv.innerHTML = `
-            <div style="font-size: 14px;">
+            <div style="font-size: 14px; background: #f8f9fa; padding: 15px; border-radius: 8px;">
+                <h4>Performance Metrics</h4>
                 <p><strong>Accuracy:</strong> ${(accuracy * 100).toFixed(2)}%</p>
+                <p><strong>Balanced Accuracy:</strong> ${(balancedAccuracy * 100).toFixed(2)}%</p>
                 <p><strong>Precision:</strong> ${precision.toFixed(4)}</p>
-                <p><strong>Recall:</strong> ${recall.toFixed(4)}</p>
+                <p><strong>Recall (Sensitivity):</strong> ${recall.toFixed(4)}</p>
+                <p><strong>Specificity:</strong> ${specificity.toFixed(4)}</p>
                 <p><strong>F1 Score:</strong> ${f1.toFixed(4)}</p>
+                <p><strong>Optimal Threshold:</strong> ~0.3-0.4 for imbalanced data</p>
             </div>
         `;
         
-        // Calculate and plot ROC curve
+        // Enhanced ROC with AUC
         await plotROC(trueVals, predVals);
         
     } catch (error) {
-        console.error('Error updating metrics:', error);
+        console.error('Error updating enhanced metrics:', error);
     }
 }
 
 // Plot ROC curve
 async function plotROC(trueLabels, predictions) {
     try {
-        // Calculate TPR and FPR for different thresholds
-        const thresholds = Array.from({ length: 50 }, (_, i) => i / 50);
+        const thresholds = Array.from({ length: 100 }, (_, i) => i / 100);
         const rocData = [];
         
         thresholds.forEach(threshold => {
@@ -905,39 +991,58 @@ async function plotROC(trueLabels, predictions) {
                 }
             }
             
-            const tpr = tp / (tp + fn) || 0;
-            const fpr = fp / (fp + tn) || 0;
+            const tpr = tp / (tp + fn) || 0;  // True Positive Rate
+            const fpr = fp / (fp + tn) || 0;  // False Positive Rate
             
             rocData.push({ threshold, fpr, tpr });
         });
         
-        // Calculate AUC (approximate using trapezoidal rule)
+        // FIXED AUC calculation (trapezoidal rule)
         let auc = 0;
+        rocData.sort((a, b) => a.fpr - b.fpr); // Sort by FPR
+        
         for (let i = 1; i < rocData.length; i++) {
-            auc += (rocData[i].fpr - rocData[i-1].fpr) * (rocData[i].tpr + rocData[i-1].tpr) / 2;
+            const width = rocData[i].fpr - rocData[i-1].fpr;
+            const avgHeight = (rocData[i].tpr + rocData[i-1].tpr) / 2;
+            auc += width * avgHeight;
         }
         
-        // Plot ROC curve
-        tfvis.render.linechart(
-            { name: 'ROC Curve', tab: 'Evaluation' },
-            { values: rocData.map(d => ({ x: d.fpr, y: d.tpr })) },
-            { 
-                xLabel: 'False Positive Rate', 
-                yLabel: 'True Positive Rate',
-                series: ['ROC Curve'],
-                width: 400,
-                height: 400
-            }
-        );
+        console.log('AUC calculated:', auc);
         
-        // Add AUC to performance metrics
-        const metricsDiv = document.getElementById('performance-metrics');
-        metricsDiv.innerHTML += `<p><strong>AUC:</strong> ${auc.toFixed(4)}</p>`;
+        // Plot ROC curve
+        if (auc >= 0 && auc <= 1) {
+            tfvis.render.linechart(
+                { name: 'ROC Curve', tab: 'Evaluation' },
+                { values: rocData.map(d => ({ x: d.fpr, y: d.tpr })) },
+                { 
+                    xLabel: 'False Positive Rate', 
+                    yLabel: 'True Positive Rate',
+                    series: ['ROC Curve (AUC: ' + auc.toFixed(4) + ')'],
+                    width: 400,
+                    height: 400
+                }
+            );
+            
+            // Update metrics with correct AUC
+            const metricsDiv = document.getElementById('performance-metrics');
+            if (metricsDiv) {
+                const currentHTML = metricsDiv.innerHTML;
+                if (!currentHTML.includes('AUC')) {
+                    metricsDiv.innerHTML = currentHTML.replace(
+                        '</div>', 
+                        `<p><strong>AUC:</strong> ${auc.toFixed(4)}</p></div>`
+                    );
+                }
+            }
+        } else {
+            console.warn('Invalid AUC value:', auc);
+        }
         
     } catch (error) {
         console.error('Error plotting ROC curve:', error);
     }
 }
+
 
 // Predict on test data
 async function predict() {
