@@ -732,7 +732,8 @@ async function trainModel() {
         validationLabels = valLabels;
         
         // INCREASED EPOCHS and added class weighting
-        const epochs = 100;
+        const epochs = parseInt(document.getElementById('epochs').value);
+        console.log('Training for', epochs, 'epochs');
         
         // Calculate class weights for imbalanced data
         const positiveCount = trainLabels.sum().dataSync()[0];
