@@ -538,22 +538,34 @@ function createModel() {
     // Create model based on selection
     model = tf.sequential();
     
+    // В createModel() для simple модели:
     if (modelType === 'simple') {
-        // Simple model for baseline
+        // IMPROVED simple model with batch normalization
         model.add(tf.layers.dense({
-            units: 64,
+            units: 128,
             activation: 'relu',
             inputShape: [inputShape]
         }));
+        
+        model.add(tf.layers.batchNormalization());
+        
         model.add(tf.layers.dense({
-        units: 32,  // добавить слой
-        activation: 'relu'
+            units: 64,
+            activation: 'relu'
         }));
+        
+        model.add(tf.layers.dropout({ rate: 0.3 }));
+        
+        model.add(tf.layers.dense({
+            units: 32,
+            activation: 'relu'
+        }));
+        
         model.add(tf.layers.dense({
             units: 1,
             activation: 'sigmoid'
         }));
-    } else if (modelType === 'deep') {
+    }else if (modelType === 'deep') {
         // Deeper model for better performance
         model.add(tf.layers.dense({
             units: 32,
@@ -599,8 +611,72 @@ function createModel() {
     // Enable the train button
     document.getElementById('train-btn').disabled = false;
 }
+
+// Helper function for oversampling minority class
+async function oversampleMinorityClass(features, labels, multiplier = 3) {
+    const featuresArray = await features.array();
+    const labelsArray = await labels.array();
+    
+    const minorityFeatures = [];
+    const minorityLabels = [];
+    const majorityFeatures = [];
+    const majorityLabels = [];
+    
+    // Разделяем на majority и minority классы
+    for (let i = 0; i < labelsArray.length; i++) {
+        if (labelsArray[i] === 1) {
+            minorityFeatures.push(featuresArray[i]);
+            minorityLabels.push(1);
+        } else {
+            majorityFeatures.push(featuresArray[i]);
+            majorityLabels.push(0);
+        }
+    }
+    
+    console.log(`Minority class: ${minorityFeatures.length} samples`);
+    console.log(`Majority class: ${majorityFeatures.length} samples`);
+    
+    // Увеличиваем minority класс
+    const oversampledMinorityFeatures = [];
+    const oversampledMinorityLabels = [];
+    
+    for (let i = 0; i < multiplier; i++) {
+        oversampledMinorityFeatures.push(...minorityFeatures);
+        oversampledMinorityLabels.push(...minorityLabels);
+    }
+    
+    // Объединяем обратно
+    const balancedFeatures = [...majorityFeatures, ...oversampledMinorityFeatures];
+    const balancedLabels = [...majorityLabels, ...oversampledMinorityLabels];
+    
+    // Перемешиваем
+    const shuffled = shuffleArrays(balancedFeatures, balancedLabels);
+    
+    console.log(`After oversampling - total: ${shuffled.features.length} samples`);
+    
+    return {
+        features: tf.tensor2d(shuffled.features),
+        labels: tf.tensor1d(shuffled.labels)
+    };
+}
+
+// Helper function to shuffle arrays
+function shuffleArrays(features, labels) {
+    const combined = features.map((f, i) => ({ feature: f, label: labels[i] }));
+    
+    // Fisher-Yates shuffle
+    for (let i = combined.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [combined[i], combined[j]] = [combined[j], combined[i]];
+    }
+    
+    return {
+        features: combined.map(item => item.feature),
+        labels: combined.map(item => item.label)
+    };
+}
 // Train the model
-// Train the model - IMPROVED VERSION
+// Train the model - IMPROVED VERSION WITH OVERSAMPLING
 async function trainModel() {
     if (!model || !preprocessedTrainData) {
         alert('Please create model first.');
@@ -614,8 +690,8 @@ async function trainModel() {
         // Split training data into train and validation sets (80/20)
         const splitIndex = Math.floor(preprocessedTrainData.features.shape[0] * 0.8);
         
-        const trainFeatures = preprocessedTrainData.features.slice(0, splitIndex);
-        const trainLabels = preprocessedTrainData.labels.slice(0, splitIndex);
+        let trainFeatures = preprocessedTrainData.features.slice(0, splitIndex);
+        let trainLabels = preprocessedTrainData.labels.slice(0, splitIndex);
         
         const valFeatures = preprocessedTrainData.features.slice(splitIndex);
         const valLabels = preprocessedTrainData.labels.slice(splitIndex);
@@ -625,14 +701,14 @@ async function trainModel() {
         validationLabels = valLabels;
         
         // INCREASED EPOCHS and added class weighting
-        const epochs = 100; // Увеличено с 20 до 100
+        const epochs = 100;
         
         // Calculate class weights for imbalanced data
         const positiveCount = trainLabels.sum().dataSync()[0];
         const negativeCount = trainLabels.shape[0] - positiveCount;
-        const positiveWeight = negativeCount / positiveCount;
+        const positiveWeight = Math.min(negativeCount / positiveCount, 15); // Ограничим до 15
         
-        console.log('Class balance:', {
+        console.log('Class balance before oversampling:', {
             positive: positiveCount,
             negative: negativeCount,
             positiveWeight: positiveWeight
@@ -640,34 +716,45 @@ async function trainModel() {
         
         const classWeight = { 
             0: 1, 
-            1: Math.min(positiveWeight, 10) // Ограничиваем вес чтобы не было слишком большого
+            1: positiveWeight
         };
         
         console.log('Using class weights:', classWeight);
+        
+        // === ВСТАВКА OVERSAMPLING ЗДЕСЬ ===
+        console.log('Before oversampling - positive samples:', trainLabels.sum().dataSync()[0]);
+        
+        // Применяем oversampling только если дисбаланс сильный
+        if (positiveCount / trainLabels.shape[0] < 0.3) {
+            statusDiv.innerHTML += '<br>Applying oversampling for class imbalance...';
+            const balancedData = await oversampleMinorityClass(trainFeatures, trainLabels, 5);
+            trainFeatures = balancedData.features;
+            trainLabels = balancedData.labels;
+        }
+        
+        console.log('After oversampling - positive samples:', trainLabels.sum().dataSync()[0]);
+        // === КОНЕЦ ВСТАВКИ ===
         
         // Train the model with class weights
         trainingHistory = await model.fit(trainFeatures, trainLabels, {
             epochs: epochs,
             batchSize: 32,
             validationData: [valFeatures, valLabels],
-            classWeight: classWeight, // Добавлены веса классов
-            callbacks: tfvis.show.fitCallbacks(
-                { name: 'Training Performance' },
-                ['loss', 'acc', 'val_loss', 'val_acc'],
-                { 
-                    callbacks: ['onEpochEnd'],
-                    onEpochEnd: (epoch, logs) => {
-                        const status = `Epoch ${epoch + 1}/${epochs} - loss: ${logs.loss.toFixed(4)}, acc: ${logs.acc.toFixed(4)}, val_loss: ${logs.val_loss.toFixed(4)}, val_acc: ${logs.val_acc.toFixed(4)}`;
-                        statusDiv.innerHTML = status;
-                        console.log(status);
-                        
-                        // Early stopping check
-                        if (epoch > 20 && logs.val_loss > 0.8) {
-                            console.log('Early stopping - validation loss too high');
-                        }
+            classWeight: classWeight,
+            callbacks: {
+                onEpochEnd: async (epoch, logs) => {
+                    const status = `Epoch ${epoch + 1}/${epochs} - loss: ${logs.loss.toFixed(4)}, acc: ${logs.acc.toFixed(4)}, val_loss: ${logs.val_loss.toFixed(4)}, val_acc: ${logs.val_acc.toFixed(4)}`;
+                    statusDiv.innerHTML = status;
+                    console.log(status);
+                    
+                    // Reduce learning rate every 20 epochs
+                    if ((epoch + 1) % 20 === 0) {
+                        const newLr = 0.001 * Math.pow(0.5, (epoch + 1) / 20);
+                        model.optimizer.learningRate = newLr;
+                        console.log(`Reduced learning rate to: ${newLr}`);
                     }
                 }
-            )
+            }
         });
         
         statusDiv.innerHTML += '<p>Training completed!</p>';
