@@ -536,7 +536,6 @@ function oneHotEncode(value, categories) {
 
 // [Rest of the functions remain the same as previous version: createModel, trainModel, updateMetrics, plotROC, predict, createPredictionTable, exportResults, toggleVisor, recreateVisualizations]
 
-// Create the model - FIXED VERSION
 function createModel() {
     if (!preprocessedTrainData) {
         alert('Please preprocess data first.');
@@ -544,9 +543,8 @@ function createModel() {
     }
     
     const inputShape = preprocessedTrainData.features.shape[1];
-    const modelType = document.getElementById('model-type').value;
     
-    console.log('Creating enhanced model with input shape:', inputShape);
+    console.log('Creating SIMPLIFIED model with input shape:', inputShape);
     
     // Clear any existing model
     if (model) {
@@ -555,89 +553,39 @@ function createModel() {
     
     model = tf.sequential();
     
-    if (modelType === 'simple') {
-        // ENHANCED simple model for imbalanced data
-        model.add(tf.layers.dense({
-            units: 64,
-            activation: 'relu',
-            inputShape: [inputShape],
-            kernelInitializer: 'heNormal',
-            kernelRegularizer: tf.regularizers.l2({l2: 0.001})
-        }));
-        
-        model.add(tf.layers.batchNormalization());
-        model.add(tf.layers.dropout({rate: 0.3}));
-        
-        model.add(tf.layers.dense({
-            units: 32,
-            activation: 'relu',
-            kernelRegularizer: tf.regularizers.l2({l2: 0.001})
-        }));
-        
-        model.add(tf.layers.dropout({rate: 0.2}));
-        
-        model.add(tf.layers.dense({
-            units: 16,
-            activation: 'relu'
-        }));
-        
-        model.add(tf.layers.dense({
-            units: 1,
-            activation: 'sigmoid'
-        }));
-        
-    } else if (modelType === 'deep') {
-        // ENHANCED deep architecture
-        model.add(tf.layers.dense({
-            units: 128,
-            activation: 'elu',
-            inputShape: [inputShape],
-            kernelInitializer: 'heNormal',
-            kernelRegularizer: tf.regularizers.l2({l2: 0.01})
-        }));
-        
-        model.add(tf.layers.batchNormalization());
-        model.add(tf.layers.dropout({rate: 0.4}));
-        
-        model.add(tf.layers.dense({
-            units: 64,
-            activation: 'elu',
-            kernelRegularizer: tf.regularizers.l2({l2: 0.01})
-        }));
-        
-        model.add(tf.layers.batchNormalization());
-        model.add(tf.layers.dropout({rate: 0.3}));
-        
-        model.add(tf.layers.dense({
-            units: 32,
-            activation: 'elu'
-        }));
-        
-        model.add(tf.layers.dropout({rate: 0.2}));
-        
-        model.add(tf.layers.dense({
-            units: 16,
-            activation: 'relu'
-        }));
-        
-        model.add(tf.layers.dense({
-            units: 1,
-            activation: 'sigmoid'
-        }));
-    }
+    // УПРОЩЕННАЯ АРХИТЕКТУРА - как в Titanic, но с учетом дисбаланса
+    model.add(tf.layers.dense({
+        units: 32,  // Уменьшили с 64 до 32
+        activation: 'relu',
+        inputShape: [inputShape]
+    }));
     
-    // Enhanced compilation
+    // ТОЛЬКО один dropout для регуляризации
+    model.add(tf.layers.dropout({rate: 0.2}));
+    
+    model.add(tf.layers.dense({
+        units: 16,  // Уменьшили с 32 до 16
+        activation: 'relu'
+    }));
+    
+    // Выходной слой
+    model.add(tf.layers.dense({
+        units: 1,
+        activation: 'sigmoid'
+    }));
+    
+    // УПРОЩЕННАЯ КОМПИЛЯЦИЯ
     model.compile({
-        optimizer: tf.train.adam(0.0005),
+        optimizer: tf.train.adam(0.001), // Стандартный learning rate
         loss: 'binaryCrossentropy',
-        metrics: ['accuracy'] // Keep it simple for compatibility
+        metrics: ['accuracy']
     });
     
-    // Display enhanced model summary
+    // Display simplified model summary
     const summaryDiv = document.getElementById('model-summary');
-    summaryDiv.innerHTML = '<h3>Enhanced Model Summary</h3>';
+    summaryDiv.innerHTML = '<h3>Simplified Model Summary</h3>';
     
-    let summaryText = `<p>Model Type: ${modelType === 'simple' ? 'Enhanced Simple Network' : 'Enhanced Deep Network'}</p>`;
+    let summaryText = `<p>Model Type: Simplified Network (like Titanic style)</p>`;
     summaryText += `<p>Input Features: ${inputShape}</p>`;
     summaryText += '<ul>';
     model.layers.forEach((layer, i) => {
@@ -645,7 +593,7 @@ function createModel() {
     });
     summaryText += '</ul>';
     summaryText += `<p>Total parameters: ${model.countParams().toLocaleString()}</p>`;
-    summaryText += `<p>Architecture optimized for class imbalance</p>`;
+    summaryText += `<p>Focus: Better precision-recall balance</p>`;
     summaryDiv.innerHTML += summaryText;
     
     document.getElementById('train-btn').disabled = false;
@@ -752,14 +700,14 @@ async function trainModel() {
     }
     
     const statusDiv = document.getElementById('training-status');
-    statusDiv.innerHTML = 'Training enhanced model with class balancing...';
+    statusDiv.innerHTML = 'Training simplified model...';
     
     try {
         // Split data
         const splitIndex = Math.floor(preprocessedTrainData.features.shape[0] * 0.8);
         
-        let trainFeatures = preprocessedTrainData.features.slice(0, splitIndex);
-        let trainLabels = preprocessedTrainData.labels.slice(0, splitIndex);
+        const trainFeatures = preprocessedTrainData.features.slice(0, splitIndex);
+        const trainLabels = preprocessedTrainData.labels.slice(0, splitIndex);
         
         const valFeatures = preprocessedTrainData.features.slice(splitIndex);
         const valLabels = preprocessedTrainData.labels.slice(splitIndex);
@@ -770,19 +718,17 @@ async function trainModel() {
         
         const epochs = parseInt(document.getElementById('epochs').value);
         
-        // Calculate advanced class weights
+        // УПРОЩЕННЫЕ CLASS WEIGHTS
         const labelsArray = await trainLabels.data();
         const positiveCount = labelsArray.filter(label => label === 1).length;
         const negativeCount = labelsArray.length - positiveCount;
         
-        // Dynamic class weighting based on imbalance ratio
-        const imbalanceRatio = negativeCount / positiveCount;
-        const positiveWeight = Math.min(imbalanceRatio, 10); // Cap at 10x
+        // Более консервативные веса
+        const positiveWeight = Math.min(negativeCount / positiveCount, 5); // Макс 5x вместо 10x
         
         console.log('Class distribution:', {
             positive: positiveCount,
             negative: negativeCount,
-            imbalanceRatio: imbalanceRatio.toFixed(2),
             positiveWeight: positiveWeight.toFixed(2)
         });
         
@@ -791,7 +737,7 @@ async function trainModel() {
             1: positiveWeight
         };
         
-        // Enhanced training with callbacks
+        // УПРОЩЕННАЯ ТРЕНИРОВКА
         trainingHistory = await model.fit(trainFeatures, trainLabels, {
             epochs: epochs,
             batchSize: 32,
@@ -802,34 +748,25 @@ async function trainModel() {
                     const status = `Epoch ${epoch + 1}/${epochs} - loss: ${logs.loss.toFixed(4)}, acc: ${logs.acc.toFixed(4)}, val_loss: ${logs.val_loss.toFixed(4)}, val_acc: ${logs.val_acc.toFixed(4)}`;
                     statusDiv.innerHTML = status;
                     console.log(status);
-                    
-                    // Dynamic learning rate scheduling
-                    if ((epoch + 1) % 15 === 0) {
-                        const currentLr = model.optimizer.learningRate;
-                        const newLr = currentLr * 0.8;
-                        model.optimizer.learningRate = newLr;
-                        console.log(`Reduced learning rate to: ${newLr}`);
-                    }
                 },
                 onTrainEnd: () => {
-                    statusDiv.innerHTML += '<p style="color: green;">Training completed successfully!</p>';
+                    statusDiv.innerHTML += '<p style="color: green;">Training completed!</p>';
+                    // Автоматически найти оптимальный threshold
+                    setTimeout(() => enhanceModelFurther(), 500);
                 }
             }
         });
         
-        // Enhanced validation predictions
         validationPredictions = model.predict(validationData);
         
-        // Enable evaluation components
         document.getElementById('threshold-slider').disabled = false;
         document.getElementById('threshold-slider').addEventListener('input', updateMetrics);
         document.getElementById('predict-btn').disabled = false;
         
-        // Initial metrics calculation
         updateMetrics();
         
     } catch (error) {
-        console.error('Error during enhanced training:', error);
+        console.error('Error during training:', error);
         statusDiv.innerHTML = `<p style="color: red;">Error during training: ${error.message}</p>`;
     }
 }
@@ -1261,3 +1198,29 @@ document.addEventListener('DOMContentLoaded', function() {
     
     console.log('Health Insurance Prediction App initialized');
 });
+
+function resetModelSession() {
+    console.log('Resetting model session...');
+    
+    // Dispose of tensors to free memory
+    if (validationPredictions) {
+        validationPredictions.dispose();
+        validationPredictions = null;
+    }
+    if (validationData) {
+        validationData.dispose();
+        validationData = null;
+    }
+    if (validationLabels) {
+        validationLabels.dispose();
+        validationLabels = null;
+    }
+    
+    // Clear UI
+    document.getElementById('confusion-matrix').innerHTML = '';
+    document.getElementById('performance-metrics').innerHTML = '';
+    document.getElementById('threshold-slider').value = 0.5;
+    document.getElementById('threshold-value').textContent = '0.50';
+    
+    console.log('Model session reset complete');
+}
