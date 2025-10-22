@@ -469,12 +469,12 @@ function extractFeatures(row, ageMedian, annualPremiumMedian, regionCodeMedian, 
     // CRITICAL: Add domain-specific engineered features
     // 1. Age groups (insurance relevance)
     const ageGroup = age < 25 ? 0 : age < 40 ? 1 : age < 60 ? 2 : 3;
-    const ageGroupOneHot = oneHotEncode(ageGroup.toString(), ['0', '1', '2', '3']);
-    features = features.concat(ageGroupOneHot);
+    //const ageGroupOneHot = oneHotEncode(ageGroup.toString(), ['0', '1', '2', '3']);
+    //features = features.concat(ageGroupOneHot);
     
     // 2. Premium to age ratio (affordability indicator)
-    const premiumToAgeRatio = annualPremium / (age || 1);
-    features.push(isNaN(premiumToAgeRatio) ? 0 : premiumToAgeRatio / 1000);
+    //const premiumToAgeRatio = annualPremium / (age || 1);
+    //features.push(isNaN(premiumToAgeRatio) ? 0 : premiumToAgeRatio / 1000);
     
     // 3. Risk profile: Young drivers with vehicle damage
     const youngRiskyDriver = (age < 30 && row.Vehicle_Damage === 'Yes') ? 1 : 0;
@@ -544,7 +544,7 @@ function createModel() {
     
     const inputShape = preprocessedTrainData.features.shape[1];
     
-    console.log('Creating SIMPLIFIED model with input shape:', inputShape);
+    console.log('Creating ULTRA SIMPLIFIED model with input shape:', inputShape);
     
     // Clear any existing model
     if (model) {
@@ -553,20 +553,15 @@ function createModel() {
     
     model = tf.sequential();
     
-    // УПРОЩЕННАЯ АРХИТЕКТУРА - как в Titanic, но с учетом дисбаланса
+    // СУПЕР-ПРОСТАЯ АРХИТЕКТУРА - 2 слоя как в Titanic
     model.add(tf.layers.dense({
-        units: 32,  // Уменьшили с 64 до 32
+        units: 24,  // ЕЩЕ МЕНЬШЕ!
         activation: 'relu',
-        inputShape: [inputShape]
+        inputShape: [inputShape],
+        kernelRegularizer: tf.regularizers.l2({l2: 0.01}) // Добавляем регуляризацию
     }));
     
-    // ТОЛЬКО один dropout для регуляризации
-    model.add(tf.layers.dropout({rate: 0.2}));
-    
-    model.add(tf.layers.dense({
-        units: 16,  // Уменьшили с 32 до 16
-        activation: 'relu'
-    }));
+    model.add(tf.layers.dropout({rate: 0.3})); // Больше регуляризации
     
     // Выходной слой
     model.add(tf.layers.dense({
@@ -574,27 +569,17 @@ function createModel() {
         activation: 'sigmoid'
     }));
     
-    // УПРОЩЕННАЯ КОМПИЛЯЦИЯ
+    // Компиляция с БОЛЕЕ КОНСЕРВАТИВНЫМИ весами
     model.compile({
-        optimizer: tf.train.adam(0.001), // Стандартный learning rate
+        optimizer: tf.train.adam(0.001),
         loss: 'binaryCrossentropy',
         metrics: ['accuracy']
     });
     
-    // Display simplified model summary
     const summaryDiv = document.getElementById('model-summary');
-    summaryDiv.innerHTML = '<h3>Simplified Model Summary</h3>';
-    
-    let summaryText = `<p>Model Type: Simplified Network (like Titanic style)</p>`;
-    summaryText += `<p>Input Features: ${inputShape}</p>`;
-    summaryText += '<ul>';
-    model.layers.forEach((layer, i) => {
-        summaryText += `<li>Layer ${i+1}: ${layer.getClassName()} - Units: ${layer.units || 'N/A'}</li>`;
-    });
-    summaryText += '</ul>';
-    summaryText += `<p>Total parameters: ${model.countParams().toLocaleString()}</p>`;
-    summaryText += `<p>Focus: Better precision-recall balance</p>`;
-    summaryDiv.innerHTML += summaryText;
+    summaryDiv.innerHTML = '<h3>Ultra-Simplified Model (2 layers)</h3>';
+    summaryDiv.innerHTML += `<p>Architecture: 24 neurons → 1 output (like Titanic)</p>`;
+    summaryDiv.innerHTML += `<p>Focus: Higher precision, less overfitting</p>`;
     
     document.getElementById('train-btn').disabled = false;
 }
@@ -700,7 +685,7 @@ async function trainModel() {
     }
     
     const statusDiv = document.getElementById('training-status');
-    statusDiv.innerHTML = 'Training simplified model...';
+    statusDiv.innerHTML = 'Training model with Early Stopping...';
     
     try {
         // Split data
@@ -724,7 +709,7 @@ async function trainModel() {
         const negativeCount = labelsArray.length - positiveCount;
         
         // Более консервативные веса
-        const positiveWeight = Math.min(negativeCount / positiveCount, 5); // Макс 5x вместо 10x
+        const positiveWeight = Math.min(negativeCount / positiveCount, 3); // Макс 3x вместо 5x
         
         console.log('Class distribution:', {
             positive: positiveCount,
@@ -736,34 +721,74 @@ async function trainModel() {
             0: 1, 
             1: positiveWeight
         };
-        
-        // УПРОЩЕННАЯ ТРЕНИРОВКА
+
+        // 🔥 EARLY STOPPING VARIABLES
+        let bestValLoss = Infinity;
+        let patience = 5; // Сколько эпох ждать ухудшения
+        let patienceCounter = 0;
+        let bestWeights = null;
+
+        // УПРОЩЕННАЯ ТРЕНИРОВКА С EARLY STOPPING
         trainingHistory = await model.fit(trainFeatures, trainLabels, {
             epochs: epochs,
             batchSize: 32,
             validationData: [valFeatures, valLabels],
             classWeight: classWeight,
             callbacks: {
+                onEpochBegin: async (epoch, logs) => {
+                    // Сохраняем лучшие веса в начале каждой эпохи
+                    if (epoch === 0) {
+                        bestWeights = model.getWeights();
+                    }
+                },
                 onEpochEnd: async (epoch, logs) => {
                     const status = `Epoch ${epoch + 1}/${epochs} - loss: ${logs.loss.toFixed(4)}, acc: ${logs.acc.toFixed(4)}, val_loss: ${logs.val_loss.toFixed(4)}, val_acc: ${logs.val_acc.toFixed(4)}`;
-                    statusDiv.innerHTML = status;
+                    
+                    // 🔥 EARLY STOPPING LOGIC
+                    if (logs.val_loss < bestValLoss) {
+                        bestValLoss = logs.valLoss;
+                        patienceCounter = 0;
+                        // Сохраняем лучшие веса
+                        bestWeights = model.getWeights();
+                        statusDiv.innerHTML = status + ' ✅ (Best val_loss)';
+                    } else {
+                        patienceCounter++;
+                        statusDiv.innerHTML = status + ` ⚠️ (Patience: ${patienceCounter}/${patience})`;
+                        
+                        // Если терпение исчерпано - останавливаем training
+                        if (patienceCounter >= patience) {
+                            console.log(`Early stopping triggered at epoch ${epoch + 1}`);
+                            model.stopTraining = true;
+                            
+                            // Восстанавливаем лучшие веса
+                            if (bestWeights) {
+                                model.setWeights(bestWeights);
+                                console.log('Restored best model weights');
+                            }
+                        }
+                    }
+                    
                     console.log(status);
                 },
                 onTrainEnd: () => {
                     statusDiv.innerHTML += '<p style="color: green;">Training completed!</p>';
+                    if (patienceCounter >= patience) {
+                        statusDiv.innerHTML += '<p style="color: orange;">Early stopping was triggered</p>';
+                    }
+                    
                     // Автоматически найти оптимальный threshold
-                    setTimeout(() => enhanceModelFurther(), 500);
+                    setTimeout(() => {
+                        validationPredictions = model.predict(validationData);
+                        updateMetrics();
+                    }, 500);
                 }
             }
         });
         
-        validationPredictions = model.predict(validationData);
-        
+        // Включаем UI элементы
         document.getElementById('threshold-slider').disabled = false;
         document.getElementById('threshold-slider').addEventListener('input', updateMetrics);
         document.getElementById('predict-btn').disabled = false;
-        
-        updateMetrics();
         
     } catch (error) {
         console.error('Error during training:', error);
